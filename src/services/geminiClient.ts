@@ -1,11 +1,28 @@
 import { GoogleGenAI, Type } from '@google/genai';
+import { getApiKeyManager } from './apiKeyManager';
+
+let apiKeyManager = getApiKeyManager();
 
 export function getAI() {
-  const apiKey = process.env.GEMINI_API_KEY || import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('CUSTOM_GEMINI_API_KEY');
+  const apiKey = apiKeyManager.getKey();
   if (!apiKey) {
     throw new Error("API key is missing. Please ensure it is set as an environment variable or in Settings.");
   }
   return new GoogleGenAI({ apiKey });
+}
+
+/**
+ * Get API key manager for quota management
+ */
+export function getApiKeyManager_() {
+  return apiKeyManager;
+}
+
+/**
+ * Reload API keys (useful if they change in settings)
+ */
+export function reloadApiKeys() {
+  apiKeyManager = getApiKeyManager();
 }
 
 export async function generateWithFallback(options: {
@@ -13,7 +30,6 @@ export async function generateWithFallback(options: {
   config?: any;
   jsonSchema?: any;
 }) {
-  const ai = getAI();
   const config = { ...options.config };
   
   if (options.jsonSchema) {
@@ -21,24 +37,48 @@ export async function generateWithFallback(options: {
     config.responseSchema = options.jsonSchema;
   }
 
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: options.contents,
-      config,
-    });
-    return response;
-  } catch (err: any) {
-    if (err.message?.includes('403') || err.message?.includes('PERMISSION_DENIED') || err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED')) {
-      console.warn("gemini-3-flash-preview failed, falling back to gemini-2.5-flash");
-      return await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: options.contents,
-        config,
-      });
+  const models = ['gemini-3-flash-preview', 'gemini-2.5-flash'];
+  let lastError: any = null;
+
+  // Try each model with fallback to next API key
+  for (const model of models) {
+    let apiAttempts = 0;
+    while (apiAttempts < apiKeyManager.getStatus().totalKeys + 1) {
+      try {
+        const ai = getAI();
+        const response = await ai.models.generateContent({
+          model,
+          contents: options.contents,
+          config,
+        });
+        return response;
+      } catch (err: any) {
+        lastError = err;
+        const isQuotaError = apiKeyManager.isQuotaError(err);
+        const statusCode = err.message?.match(/\d{3}/)?.[0];
+
+        if (isQuotaError) {
+          console.warn(
+            `⚠️ Quota exceeded with current key. ${statusCode ? `(${statusCode})` : ''}`
+          );
+          try {
+            apiKeyManager.switchToNextKey(err.message);
+            apiAttempts++;
+            continue; // Retry with next key
+          } catch (switchErr: any) {
+            console.error('❌ No more API keys available:', switchErr.message);
+            throw switchErr;
+          }
+        }
+
+        // Not a quota error, throw immediately
+        throw err;
+      }
     }
-    throw err;
   }
+
+  // All attempts failed
+  throw lastError || new Error('Failed to generate content with all available keys and models');
 }
 
 export async function generateStreamWithFallback(options: {
@@ -46,38 +86,55 @@ export async function generateStreamWithFallback(options: {
   config?: any;
   onChunk: (text: string) => void;
 }) {
-  const ai = getAI();
-  let fullText = '';
-  
-  try {
-    const responseStream = await ai.models.generateContentStream({
-      model: 'gemini-3-flash-preview',
-      contents: options.contents,
-      config: options.config,
-    });
-    for await (const chunk of responseStream) {
-      if (chunk.text) {
-        fullText += chunk.text;
-        options.onChunk(fullText);
-      }
-    }
-    return fullText;
-  } catch (err: any) {
-    if (err.message?.includes('403') || err.message?.includes('PERMISSION_DENIED') || err.message?.includes('429') || err.message?.includes('RESOURCE_EXHAUSTED')) {
-      console.warn("gemini-3-flash-preview failed, falling back to gemini-2.5-flash");
-      const fallbackStream = await ai.models.generateContentStream({
-        model: 'gemini-2.5-flash',
-        contents: options.contents,
-        config: options.config,
-      });
-      for await (const chunk of fallbackStream) {
-        if (chunk.text) {
-          fullText += chunk.text;
-          options.onChunk(fullText);
+  const models = ['gemini-3-flash-preview', 'gemini-2.5-flash'];
+  let lastError: any = null;
+
+  // Try each model with fallback to next API key
+  for (const model of models) {
+    let apiAttempts = 0;
+    while (apiAttempts < apiKeyManager.getStatus().totalKeys + 1) {
+      try {
+        const ai = getAI();
+        let fullText = '';
+        
+        const responseStream = await ai.models.generateContentStream({
+          model,
+          contents: options.contents,
+          config: options.config,
+        });
+
+        for await (const chunk of responseStream) {
+          if (chunk.text) {
+            fullText += chunk.text;
+            options.onChunk(fullText);
+          }
         }
+        return fullText;
+      } catch (err: any) {
+        lastError = err;
+        const isQuotaError = apiKeyManager.isQuotaError(err);
+        const statusCode = err.message?.match(/\d{3}/)?.[0];
+
+        if (isQuotaError) {
+          console.warn(
+            `⚠️ Quota exceeded with current key during stream. ${statusCode ? `(${statusCode})` : ''}`
+          );
+          try {
+            apiKeyManager.switchToNextKey(err.message);
+            apiAttempts++;
+            continue; // Retry with next key
+          } catch (switchErr: any) {
+            console.error('❌ No more API keys available:', switchErr.message);
+            throw switchErr;
+          }
+        }
+
+        // Not a quota error, throw immediately
+        throw err;
       }
-      return fullText;
     }
-    throw err;
   }
+
+  // All attempts failed
+  throw lastError || new Error('Failed to stream content with all available keys and models');
 }
