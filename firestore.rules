@@ -1,0 +1,109 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isValidDateString(dateStr) {
+      return dateStr is string &&
+        dateStr.matches("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*Z?$");
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    function isValidMacro(data) {
+      return hasOnlyAllowedFields(['id', 'summary', 'response', 'responseEn', 'responseAr', 'dateAdded', 'userId', 'isFavorite']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 100 &&
+             data.summary is string && data.summary.size() > 0 && data.summary.size() <= 5000 &&
+             data.response is string && data.response.size() > 0 && data.response.size() <= 50000 &&
+             (!('responseEn' in data) || (data.responseEn is string && data.responseEn.size() <= 50000)) &&
+             (!('responseAr' in data) || (data.responseAr is string && data.responseAr.size() <= 50000)) &&
+             isValidDateString(data.dateAdded) &&
+             (!('isFavorite' in data) || data.isFavorite is bool);
+    }
+
+    function isValidLink(data) {
+      return hasOnlyAllowedFields(['id', 'url', 'description', 'dateAdded', 'userId', 'isFavorite']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 100 &&
+             data.url is string && (data.url.matches("^https://.*") || data.url.matches("^http://.*")) &&
+             data.description is string && data.description.size() > 0 && data.description.size() <= 5000 &&
+             isValidDateString(data.dateAdded) &&
+             (!('isFavorite' in data) || data.isFavorite is bool);
+    }
+
+    function isValidTemplate(data) {
+      return hasOnlyAllowedFields(['id', 'name', 'fields', 'dateAdded', 'userId', 'isFavorite']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 1000 &&
+             data.fields is list && data.fields.size() <= 500 &&
+             data.dateAdded is number &&
+             (!('isFavorite' in data) || data.isFavorite is bool);
+    }
+
+    function isValidUpdate(data) {
+      return hasOnlyAllowedFields(['id', 'title', 'content', 'severity', 'link', 'imageUrl', 'dateAdded', 'userId']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 100 &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 1000 &&
+             data.content is string && data.content.size() > 0 && data.content.size() <= 50000 &&
+             (!('severity' in data) || data.severity in ['Low', 'Medium', 'High', 'Critical']) &&
+             (!('link' in data) || (data.link is string && data.link.size() <= 2000)) &&
+             (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 2000)) &&
+             isValidDateString(data.dateAdded);
+    }
+
+    function isValidWorkflow(data) {
+      return hasOnlyAllowedFields(['id', 'name', 'description', 'dateAdded', 'userId', 'isFavorite', 'nodes', 'startingNodeId']) &&
+             data.id is string && data.id.size() > 0 && data.id.size() <= 100 &&
+             data.name is string && data.name.size() > 0 && data.name.size() <= 1000 &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 10000)) &&
+             isValidDateString(data.dateAdded) &&
+             (!('isFavorite' in data) || data.isFavorite is bool) &&
+             data.nodes is list && data.nodes.size() <= 1000 &&
+             (!('startingNodeId' in data) || data.startingNodeId == null || (data.startingNodeId is string && data.startingNodeId.size() <= 100));
+    }
+
+    match /macros/{macroId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId && isValidMacro(request.resource.data);
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId && request.auth.uid == request.resource.data.userId && isValidMacro(request.resource.data) && areImmutableFieldsUnchanged(['id']);
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+
+    match /links/{linkId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId && isValidLink(request.resource.data);
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId && request.auth.uid == request.resource.data.userId && isValidLink(request.resource.data) && areImmutableFieldsUnchanged(['id']);
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+
+    match /templates/{templateId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId && isValidTemplate(request.resource.data);
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId && request.auth.uid == request.resource.data.userId && isValidTemplate(request.resource.data) && areImmutableFieldsUnchanged(['id']);
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+
+    match /updates/{updateId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId && isValidUpdate(request.resource.data);
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId && request.auth.uid == request.resource.data.userId && isValidUpdate(request.resource.data) && areImmutableFieldsUnchanged(['id']);
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+
+    match /workflows/{workflowId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId && isValidWorkflow(request.resource.data);
+      allow update: if request.auth != null && request.auth.uid == resource.data.userId && request.auth.uid == request.resource.data.userId && isValidWorkflow(request.resource.data) && areImmutableFieldsUnchanged(['id']);
+      allow delete: if request.auth != null && request.auth.uid == resource.data.userId;
+    }
+  }
+}

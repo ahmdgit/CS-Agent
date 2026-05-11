@@ -1,0 +1,29 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: var(--font-family-sans, "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--font-family-mono, ui-monospace, SFMono-Regular, monospace);
+
+  /* Use color-mix to define all shades of primary based on the root variable */
+  --color-primary-50: color-mix(in srgb, var(--color-primary) 10%, white);
+  --color-primary-100: color-mix(in srgb, var(--color-primary) 20%, white);
+  --color-primary-200: color-mix(in srgb, var(--color-primary) 40%, white);
+  --color-primary-300: color-mix(in srgb, var(--color-primary) 60%, white);
+  --color-primary-400: color-mix(in srgb, var(--color-primary) 80%, white);
+  --color-primary-500: var(--color-primary);
+  --color-primary-600: color-mix(in srgb, var(--color-primary) 85%, black);
+  --color-primary-700: color-mix(in srgb, var(--color-primary) 70%, black);
+  --color-primary-800: color-mix(in srgb, var(--color-primary) 55%, black);
+  --color-primary-900: color-mix(in srgb, var(--color-primary) 40%, black);
+  --color-primary-950: color-mix(in srgb, var(--color-primary) 20%, black);
+}
+
+@layer base {
+  body {
+    @apply antialiased text-slate-900 bg-slate-50;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    @apply tracking-tight;
+  }
+}
